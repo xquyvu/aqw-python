@@ -180,3 +180,4 @@ CharSelect.cfg
 capture_logs/
 *.bak
 .opencode/
+/.aqw_state/

@@ -1281,6 +1281,10 @@ class Command:
                     return condition_data["condition"](current_hp_pct, condition_data["hp_threshold"])
         return True
 
+    def _leech_room_ready(self) -> bool:
+        guard = self.bot.leech_combat_guard
+        return guard is None or guard()
+
     @check_alive
     async def use_skill(self,  
                         index: int = 0, 
@@ -1319,6 +1323,8 @@ class Command:
         Returns:
             bool: True if the skill was successfully executed, False otherwise.
         """
+        if not self._leech_room_ready():
+            return False
         if buff_only:
             skill_mode = SkillMode.BUFF_ONLY
         if skill_mode == SkillMode.NONE:
@@ -1397,6 +1403,8 @@ class Command:
                 return False
 
             await self._pace_skill_cast(gap_ms)
+            if not self._leech_room_ready():
+                return False
             if index == 5:
                 # The scroll id comes from bot.scroll_id, set by equip_scroll().
                 self.bot.use_scroll(final_ids, max_target)
@@ -1407,10 +1415,14 @@ class Command:
         if skill_mode in (SkillMode.ALL, SkillMode.BUFF_ONLY):
             if skill.target == "f":
                 await self._pace_skill_cast(gap_ms)
+                if not self._leech_room_ready():
+                    return False
                 self.bot.use_skill_to_player(index, max_target)
                 packet_sent = True
             if skill.target == "s":
                 await self._pace_skill_cast(gap_ms)
+                if not self._leech_room_ready():
+                    return False
                 self.bot.use_skill_to_myself(index)
                 packet_sent = True
 

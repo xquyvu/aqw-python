@@ -190,6 +190,170 @@ async def advanced_farming_routine():
 - **Navigation**: `join_map()`, `jump_cell()`, `goto_player()`
 - **Player Information**: `get_player()`, `is_player_alive()`, `get_monster_hp()`
 
+### Configuration-driven quest farming
+
+For repeatable quests farmed on one screen, define a `FarmConfig` instead of
+writing another combat/quest loop. Existing scripts keep their one-command launch:
+
+```powershell
+python -u -m bot.embersea_rep
+python -u -m bot.embersea_quests
+python -u -m bot.dragonslayer_general
+python -u -m bot.exp_farming
+python -u -m bot.chaos_rep
+python -u -m bot.arcangrove_rep
+python -u -m bot.arcangrove_rep_solo
+```
+
+For the Elder's Blood and Glacera Ice Token dailies, run:
+
+```powershell
+python -u -m bot.daily
+```
+
+This farms the three-Gorillaphant screen in `arcangrove` with Blaze Binder,
+then Frost Invaders in `frozenruins` with Dragonslayer General. Each quest
+is turned in once, and the bot stops after both steps. Server-rejected quests
+(already done today or locked) are logged and skipped; unlock Syrrus's daily
+quests beforehand. Both classes must be in inventory or bank.
+
+These read one account from `USERNAME_AQW` and `PASSWORD_AQW` in the repository's
+`.env`. The configuration selects the server and room. For example:
+
+```python
+from core.command import Command
+from core.quest_farm import FarmConfig, Quest, Screen, farm_quests, run_farm
+
+CONFIG = FarmConfig(
+    name="Embersea reputation",
+    quests=(
+        Quest(4218, "Round 3: Firestorm Pikemen"),
+        Quest(4219, "Round 4: Firestorm Knights"),
+        Quest(4229, "Take out the Firestorm Knights"),
+    ),
+    map_name="fireforge",
+    screen=Screen(monsters={"Fire Pikeman": 2, "Firestorm Knight": 2}),
+    combo="ready",
+    reputation="Embersea",
+    server="Alteon",
+    mode="leech",
+    room_number=1,
+)
+
+async def main(cmd: Command):
+    await farm_quests(cmd, CONFIG)
+
+if __name__ == "__main__":
+    run_farm(CONFIG)
+```
+
+Save a new configuration as a module under `bot`, then launch it with
+`python -u -m bot.your_module`. `main` also preserves compatibility with `start.py`.
+
+Every `FarmConfig` defaults to `mode="leech"`: it uses the configured common
+server (`Alteon` by default) and requests public `room_number=1` when joining
+the map. Once in the map, any room is accepted, including server substitutions;
+the bot stays there instead of forcing a transfer back to room 1.
+Set `mode="solo"` to use `solo_room_number=90999` instead and enforce that exact
+room. Server and room choices are configurable; a public room is not guaranteed
+to contain other farmers.
+
+The default class is **Blaze Binder**, with the ready-skill rotation. Existing
+quest-farming configurations inherit this default; set `class_name` and, if
+needed, `combo` to override it. The EXP farm's explicit class and the selectable
+class-ranking script are unchanged.
+
+All bots default to accepting every non-member drop using the existing
+`accept_non_member_drops` policy, including non-member AC items. Member-only
+items are skipped even if named in a drop whitelist. To restore whitelist-only
+pickup for a specialized script, set `cmd.bot.accept_non_member_drops = False`.
+
+Per-drop temporary-item messages are hidden by default. To show them for
+debugging, use `Bot(showDebug=True)` or set `cmd.bot.showDebug = True`.
+Temporary inventory quantities and quest progress still update normally;
+regular item-drop logs and periodic farming progress remain visible.
+
+`bot.chaos_rep` farms `mountdoomskull`, cell `b1`, on Alteon in leech mode.
+It attempts Embrace Your Chaos (Daily), quest 3596, once per run and completes
+it before repeating Embrace Your Chaos, quest 3594. A server rejection of the
+optional daily is logged and skipped, as is a `Missing Badge` rejection when
+turning it in. Other turn-in errors and missing responses still raise errors.
+It logs Chaos reputation rank, total points and session gains. Restart the
+script after the daily reset to attempt the daily again.
+
+`bot.arcangrove_rep` equips Dragonslayer General and farms the Mafic Dragon in
+`mafic` on Alteon in leech mode. It repeats Feed Me (quest 848), turning in one
+Burning Heart at a time, and logs Arcangrove reputation rank and session gains.
+The boss screen is selected from the map's monster roster.
+
+`bot.arcangrove_rep_solo` equips Blaze Binder and farms `arcangrove-90999` in
+solo mode. It finds the screen with exactly three Gorillaphant spawns, including
+respawning monsters, and repeats Gorillaphant Poaching (795), Pleased to Meat
+You (799), and Ebony and Ivory Tusks (801). It uses all ready skills and logs
+Arcangrove reputation rank, points and session gains. The Mafic leech farm
+remains available as `bot.arcangrove_rep`.
+
+Quest names are descriptive labels; **IDs must be looked up and verified**.
+Screen counts are exact and include dead/respawning monsters. Use `None` instead
+of a count to require at least one, or specify `cell="r4", pad="Right"` alongside
+the expected monsters to select and validate a known cell.
+
+For combat-only farming, set `quests=()`. Use an empty monster roster with a
+fixed cell to attack all monsters there, for example
+`Screen(monsters={}, cell="Enter", pad="Spawn")`. `bot.exp_farming` uses this
+setup with Dragonslayer General in `sevencircleswar`, initially requesting room 1; it
+also accepts and repeats War Medals (7980) and Mega War Medals (7981), turning
+them in whenever their medal requirements are met.
+`track_exp=True` logs EXP gained from the live server-updated counter at the
+configured `report_interval` (60 seconds by default).
+
+`combo="ready"` uses any ready class skill or auto-attack, respecting cooldowns
+and server pacing. For the existing Master Ranger combo, import
+`attack_next_skill` from `combo.master_ranger` and set `combo=attack_next_skill,
+auto_attack=True` (keys 2/3, key 5 priority, plus key 1). Custom async combo
+functions take `(cmd, targets, skill_index)` and return the next index.
+For Dragonslayer General, import `attack_next_skill` from
+`combo.dragonslayer_general`. It prioritizes key 5 whenever ready, then cycles
+through other ready skills including auto-attack, using the existing cooldown,
+mana and server-pacing checks.
+For optional daily quests, use `Quest(..., optional=True, repeat=False)`.
+
+The shared flow verifies the equipped class and map (also the exact room in
+solo mode), accepts and
+repeats all configured quests, confirms server turn-ins, and logs the selected
+screen, quest-item progress and session completion counts. Optional `reputation`
+logs current points, rank and session gains from live faction data and stops
+the bot permanently at rank 10 (including if already maxed on startup); `drops`
+adds named items to the pickup whitelist. Missing factions or screens, rejected
+quests, solo-mode room substitutions and timeouts are reported as errors, not success.
+It never changes rooms to find a quieter/private instance.
+
+This pattern covers single-screen farms. Doomwood's multi-map drop planner and
+Sandsea's per-monster route remain specialized scripts.
+
+### Ranking a class to 10
+
+```powershell
+python -u -m bot.farm_melee --class "Dragonslayer General"
+python -u -m bot.farm_melee --class "Blaze Binder"
+```
+
+This script equips the named class from inventory or bank, joins Seven Circles
+War on Alteon (requests room 1 but accepts whichever room it lands in), and uses
+the hunt-helper attack loop tested with melee classes. It logs class rank,
+class points (CP), CP gained this session and EXP gains. It stops automatically
+at class rank 10, including when the class was already maxed, and disables
+relogin on completion.
+
+Class rank is separate from faction reputation. Progress uses the class's
+server-loaded CP total and actual CP awards, not an estimate from EXP.
+Omitting `--class` keeps Dragonslayer General as the default. To run a bounded
+combat check that stops on the first CP gain:
+
+```powershell
+python -u -m bot.farm_melee --class "Dragonslayer General" --test-seconds 90
+```
+
 ## Command Documentation
 
 For detailed function documentation and method references, please refer to the official documentation:
